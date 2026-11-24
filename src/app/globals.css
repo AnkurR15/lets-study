@@ -8,7 +8,7 @@ button { cursor:pointer; }
 button:disabled { opacity:.6; cursor:wait; }
 .brand { font-size:1.3rem; font-weight:800; letter-spacing:-.06em; color:#315f47; }
 .auth-shell { min-height:100vh; display:grid; place-items:center; padding:2rem 1rem; background:radial-gradient(circle at 15% 15%,#dfeede,transparent 35%),radial-gradient(circle at 85% 85%,#e9efd8,transparent 35%),#f7f8f2; }
-.auth-card { width:min(100%,460px); background:#fff; padding:2.6rem; border:1px solid #e8eee6; border-radius:24px; box-shadow:0 20px 70px #284c3010; }
+.auth-card { width:min(100%,720px); background:#fff; padding:2rem 2.5rem; border:1px solid #e8eee6; border-radius:24px; box-shadow:0 20px 70px #284c3010; }
 .eyebrow { color:#7d9c7e; letter-spacing:.16em; font-size:.68rem; font-weight:700; margin:2.8rem 0 1rem; }
 h1 { font-family:Georgia,serif; font-weight:400; font-size:clamp(2.3rem,5vw,3.8rem); line-height:1.08; letter-spacing:-.04em; margin:0; }
 h2 { font-family:Georgia,serif; font-weight:400; font-size:1.6rem; margin:0 0 .5rem; }
@@ -46,3 +46,17 @@ input:focus-visible, a:focus-visible, button:focus-visible { outline:3px solid #
 .small { font-size:.85rem; }
 .profile-form { max-width:500px; }
 @media(max-width:520px) { .auth-card { padding:1.7rem; } .topbar { padding:1.2rem; } .topbar div { gap:.8rem; } .content { padding:1rem 1.2rem; } .hero { padding-top:4rem; } }
+
+.auth-card .eyebrow { margin:1.6rem 0 .7rem; }
+@media (min-width: 600px) {
+  .auth-card .form { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .auth-card .form label:has(input[name=name]), .auth-card .form .error, .auth-card .form button { grid-column:1 / -1; }
+}
+.profile-photo-row { display:flex; align-items:center; gap:1rem; }
+.profile-avatar { width:80px; height:80px; flex:none; border-radius:50%; overflow:hidden; display:grid; place-items:center; background:#e5efe4; color:#315f47; font-size:2rem; font-weight:700; }
+.profile-avatar img { width:100%; height:100%; object-fit:cover; }
+.profile-photo-row input[type=file] { margin-top:.5rem; padding:.5rem; max-width:100%; }
+.profile-picture-label { display:block; font-size:.84rem; font-weight:700; margin-bottom:.5rem; }
+.profile-file-input { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.profile-file-button { display:inline-block; padding:.6rem .9rem; border:1px solid #dfe8df; border-radius:10px; cursor:pointer; background:#fbfcfa; }
+.profile-file-input:focus-visible + .profile-file-button { outline:3px solid #a3caaa; outline-offset:2px; }
