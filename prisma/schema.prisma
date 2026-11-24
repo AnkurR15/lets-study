@@ -1,0 +1,325 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id              String            @id @default(cuid())
+  name            String
+  email           String            @unique
+  emailVerified   Boolean           @default(false)
+  image           String?
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+  sessions        Session[]
+  accounts        Account[]
+  subjects        Subject[]
+  studySessions   StudySession[]
+  plants          UserPlant[]
+  achievements    UserAchievement[]
+  settings        FocusSettings?
+  goals           StudyGoal[]
+  distractions    Distraction[]
+  blockedWebsites BlockedWebsite[]
+  schedules       BlockSchedule[]
+  ownedRooms      StudyRoom[]       @relation("RoomOwner")
+  memberships     RoomMember[]
+  invitations     RoomInvitation[]
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime @db.Timestamptz(3)
+  token     String   @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([identifier])
+}
+
+model Subject {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  color     String
+  createdAt DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime       @updatedAt @db.Timestamptz(3)
+  sessions  StudySession[]
+  goals     StudyGoal[]
+
+  @@index([userId])
+}
+
+enum StudyStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  STOPPED
+}
+
+model StudySession {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjectId      String?
+  subject        Subject?      @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  status         StudyStatus   @default(ACTIVE)
+  targetSeconds  Int
+  elapsedSeconds Int           @default(0)
+  startedAt      DateTime      @default(now()) @db.Timestamptz(3)
+  resumedAt      DateTime?     @db.Timestamptz(3)
+  completedAt    DateTime?     @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @db.Timestamptz(3)
+  reward         StudyReward?
+  distractions   Distraction[]
+  version        Int           @default(0)
+
+  @@index([userId, startedAt])
+}
+
+model StudyReward {
+  sessionId  String       @id
+  session    StudySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  plantId    String?
+  plant      UserPlant?   @relation(fields: [plantId], references: [id], onDelete: SetNull)
+  seconds    Int
+  experience Int
+  createdAt  DateTime     @default(now()) @db.Timestamptz(3)
+}
+
+model PlantSpecies {
+  id          String      @id
+  name        String      @unique
+  description String
+  unlockLevel Int         @default(1)
+  plants      UserPlant[]
+  roomPlants  RoomPlant[]
+}
+
+model UserPlant {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  speciesId     String
+  species       PlantSpecies  @relation(fields: [speciesId], references: [id])
+  name          String?
+  growthSeconds Int           @default(0)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+  rewards       StudyReward[]
+
+  @@index([userId])
+}
+
+model Achievement {
+  id          String            @id
+  name        String            @unique
+  description String
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  userId        String
+  achievementId String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  earnedAt      DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@id([userId, achievementId])
+}
+
+enum GoalPeriod {
+  DAILY
+  WEEKLY
+}
+
+model StudyGoal {
+  id            String     @id @default(cuid())
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjectId     String?
+  subject       Subject?   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  period        GoalPeriod
+  targetSeconds Int
+  createdAt     DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @db.Timestamptz(3)
+
+  @@index([userId, subjectId])
+}
+
+model FocusSettings {
+  userId            String   @id
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timeZone          String   @default("UTC")
+  focusMinutes      Int      @default(25)
+  breakMinutes      Int      @default(5)
+  soundEnabled      Boolean  @default(false)
+  muteNotifications Boolean  @default(false)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+}
+
+model Distraction {
+  id         String        @id @default(cuid())
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId  String?
+  session    StudySession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  note       String?
+  occurredAt DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, occurredAt])
+}
+
+model BlockedWebsite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hostname  String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, hostname])
+}
+
+model BlockSchedule {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weekday     Int
+  startMinute Int
+  endMinute   Int
+  timeZone    String
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([userId])
+}
+
+enum RoomVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum RoomRole {
+  MEMBER
+  MODERATOR
+}
+
+enum RoomFocusStatus {
+  IDLE
+  FOCUSING
+  BREAK
+}
+
+model StudyRoom {
+  id          String           @id @default(cuid())
+  ownerId     String
+  owner       User             @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  name        String
+  visibility  RoomVisibility   @default(PRIVATE)
+  goalSeconds Int?
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @db.Timestamptz(3)
+  members     RoomMember[]
+  invitations RoomInvitation[]
+  sessions    RoomSession[]
+  plants      RoomPlant[]
+
+  @@index([ownerId])
+  @@index([visibility, createdAt])
+}
+
+model RoomMember {
+  roomId      String
+  userId      String
+  room        StudyRoom       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        RoomRole        @default(MEMBER)
+  focusStatus RoomFocusStatus @default(IDLE)
+  joinedAt    DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@id([roomId, userId])
+  @@index([userId])
+}
+
+model RoomInvitation {
+  id          String    @id @default(cuid())
+  roomId      String
+  room        StudyRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  expiresAt   DateTime  @db.Timestamptz(3)
+  maxUses     Int?
+  useCount    Int       @default(0)
+  revokedAt   DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([roomId])
+}
+
+model RoomSession {
+  id            String    @id @default(cuid())
+  roomId        String
+  room          StudyRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  startsAt      DateTime  @db.Timestamptz(3)
+  endsAt        DateTime? @db.Timestamptz(3)
+  targetSeconds Int
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([roomId, startsAt])
+}
+
+model RoomPlant {
+  id            String       @id @default(cuid())
+  roomId        String
+  room          StudyRoom    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  speciesId     String
+  species       PlantSpecies @relation(fields: [speciesId], references: [id])
+  name          String?
+  growthSeconds Int          @default(0)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([roomId])
+}
