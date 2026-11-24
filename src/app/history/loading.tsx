@@ -1,0 +1,1 @@
+﻿export default function Loading() { return <main className="content" aria-busy="true"><p className="eyebrow">YOUR STUDY SPACE</p><h1>Loading…</h1><p className="muted">Gathering your study details.</p></main>; }
