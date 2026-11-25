@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 import { saveSubject } from "./actions";
 
@@ -14,7 +14,9 @@ export function SubjectForm({ subject }: { subject?: Subject }) {
   const [color, setColor] = useState(subject?.color ?? colors[0].value);
   const [pending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
-  function submit(data: FormData) {
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
     startTransition(async () => {
       try {
         await saveSubject(data);
@@ -23,7 +25,7 @@ export function SubjectForm({ subject }: { subject?: Subject }) {
       } catch { toast.error("Could not save the subject. Check your details and try again."); }
     });
   }
-  return <form ref={formRef} action={submit} className="form subject-form">
+  return <form ref={formRef} onSubmit={submit} className="form subject-form">
     {subject && <input type="hidden" name="id" value={subject.id} />}
     <label>Name<input name="name" required maxLength={100} defaultValue={subject?.name} placeholder="e.g. Mathematics" /></label>
     <fieldset className="color-field"><legend>Subject color</legend><div className="color-swatches">{colors.map(item => <button key={item.value} type="button" className={`color-swatch ${color.toLowerCase() === item.value ? "is-selected" : ""}`} style={{ backgroundColor: item.value }} onClick={() => setColor(item.value)} aria-label={item.name} aria-pressed={color.toLowerCase() === item.value} title={item.name} />)}<label className="custom-color" title="Choose a custom color">Custom<input aria-label="Choose a custom color" type="color" value={color} onChange={event => setColor(event.target.value)} /></label></div><input type="hidden" name="color" value={color} /></fieldset>

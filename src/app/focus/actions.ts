@@ -13,7 +13,7 @@ export async function startTimer(input: unknown) {
   if (data.kind !== "FOCUS" && (data.mode !== "POMODORO" || data.subjectId)) throw new Error("Invalid break session.");
   if (data.kind === "FOCUS" && !data.subjectId) throw new Error("Choose a subject first.");
   if (data.mode === "POMODORO" && data.seconds !== (data.kind === "FOCUS" ? 1500 : data.kind === "BREAK" ? 300 : 900)) throw new Error("Invalid Pomodoro duration.");
-  return prisma.$transaction(async tx => {
+  const session = await prisma.$transaction(async tx => {
     await lockUser(tx, user.id);
     const now = new Date();
     await settleExpired(tx, user.id, now);
@@ -23,6 +23,17 @@ export async function startTimer(input: unknown) {
     const kind = data.kind === "FOCUS" ? data.kind : (completedPomodoros > 0 && completedPomodoros % 4 === 0 ? "LONG_BREAK" : "BREAK");
     const targetSeconds = kind === "FOCUS" ? data.seconds : kind === "LONG_BREAK" ? 900 : 300;
     return tx.studySession.create({ data: { userId: user.id, subjectId: data.subjectId, targetSeconds, kind, mode: data.mode, resumedAt: now, startedAt: now } });
+  });
+  return { ...session, serverNow: Date.now() };
+}
+
+export async function getActiveTimer() {
+  const { user } = await requireSession();
+  return prisma.$transaction(async tx => {
+    await lockUser(tx, user.id);
+    await settleExpired(tx, user.id, new Date());
+    const session = await tx.studySession.findFirst({ where: { userId: user.id, status: { in: ["ACTIVE", "PAUSED"] } } });
+    return { session, serverNow: Date.now() };
   });
 }
 
@@ -45,7 +56,7 @@ export async function updateTimer(id: string, command: "pause" | "resume" | "sto
     return session;
   });
   revalidatePath("/dashboard"); revalidatePath("/history"); revalidatePath("/focus");
-  return result;
+  return { ...result, serverNow: Date.now() };
 }
 
 export async function saveGoal(form: FormData) {
