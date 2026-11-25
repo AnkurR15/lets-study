@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Maximize2, Minimize2, Pause, Play, Square } from "lucide-react";
-import { startTimer, updateTimer } from "@/app/focus/actions";
+import { getActiveTimer, startTimer, updateTimer } from "@/app/focus/actions";
 
 type Timer = { id: string; status: string; targetSeconds: number; elapsedSeconds: number; resumedAt: Date | null; kind: string; mode: string; subjectId: string | null; version: number };
 type Subject = { id: string; name: string; color: string };
@@ -23,6 +23,14 @@ export function FocusTimer({ initial, subjects, serverNow }: { initial: Timer | 
   const [pending, transition] = useTransition();
   const syncing = useRef(false);
   const notified = useRef<string | null>(null);
+  const clock = useRef<{ server: number; monotonic: number | null }>({ server: serverNow, monotonic: null });
+  const latestServerTime = useRef(serverNow);
+  const resetClock = useCallback((time: number) => {
+    if (time < latestServerTime.current) return;
+    latestServerTime.current = time;
+    clock.current = { server: time, monotonic: performance.now() };
+    setNow(time);
+  }, []);
   const active = timer && (timer.status === "ACTIVE" || timer.status === "PAUSED");
   const left = timer ? remaining(timer, now) : (mode === "POMODORO" ? 1500 : minutes * 60);
   const total = timer?.targetSeconds ?? (mode === "POMODORO" ? 1500 : minutes * 60);
@@ -31,6 +39,7 @@ export function FocusTimer({ initial, subjects, serverNow }: { initial: Timer | 
     syncing.current = true;
     try {
       const next = await updateTimer(id, "sync");
+      resetClock(next.serverNow);
       setTimer(current => current?.id === id && next.version >= current.version ? next : current);
       setError("");
       if (next.status === "COMPLETED" && notified.current !== id) {
@@ -41,26 +50,39 @@ export function FocusTimer({ initial, subjects, serverNow }: { initial: Timer | 
       }
     } catch { setError("Could not sync your session. We will retry; your session remains saved."); }
     finally { syncing.current = false; }
-  }, [router, sound]);
+  }, [router, sound, resetClock]);
   useEffect(() => {
-    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    const tick = window.setInterval(() => {
+      const current = performance.now();
+      if (clock.current.monotonic === null) clock.current.monotonic = current;
+      setNow(clock.current.server + (current - clock.current.monotonic));
+    }, 1000);
     return () => window.clearInterval(tick);
   }, []);
+  useEffect(() => {
+    if (!initial || !["ACTIVE", "PAUSED"].includes(initial.status)) return;
+    const refresh = window.setTimeout(() => {
+      if (serverNow < latestServerTime.current) return;
+      resetClock(serverNow);
+      setTimer(current => current?.id === initial.id && current.version > initial.version ? current : initial);
+    }, 0);
+    return () => window.clearTimeout(refresh);
+  }, [initial, serverNow, resetClock]);
   useEffect(() => {
     if (!active || !timer) return;
     const id = timer.id;
     const poll = window.setInterval(() => { void sync(id); }, 15000);
-    const visible = () => { if (document.visibilityState === "visible") { setNow(Date.now()); void sync(id); } };
+    const visible = () => { if (document.visibilityState === "visible") { void sync(id); } };
     document.addEventListener("visibilitychange", visible);
     return () => { window.clearInterval(poll); document.removeEventListener("visibilitychange", visible); };
   }, [active, timer?.id, sync, timer]);
-  useEffect(() => { if (timer?.status !== "ACTIVE" || left !== 0) return; const retry = window.setTimeout(() => { void sync(timer.id); }, 0); return () => window.clearTimeout(retry); }, [timer, left, sync]);
+  useEffect(() => { if (timer?.status !== "ACTIVE" || left !== 0) return; const retry = window.setTimeout(() => { void sync(timer.id); }, 2000); return () => window.clearTimeout(retry); }, [timer, left, sync]);
   function run(command: "pause" | "resume" | "stop" | "complete") {
     if (!timer) return;
-    transition(async () => { try { setError(""); const next = await updateTimer(timer.id, command); setTimer(next); if (command === "pause" && next.status === "PAUSED") toast.success("Session paused"); if (command === "resume" && next.status === "ACTIVE") toast.success("Session resumed"); if (command === "stop" && next.status === "STOPPED") toast("Session stopped", { description: "Stopped sessions do not count toward your daily goal." }); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Could not update session."); toast.error("Could not update the session. Please try again."); } });
+    transition(async () => { try { setError(""); const next = await updateTimer(timer.id, command); resetClock(next.serverNow); setTimer(current => current?.id === next.id && current.version <= next.version ? next : current); if (command === "pause" && next.status === "PAUSED") toast.success("Session paused"); if (command === "resume" && next.status === "ACTIVE") toast.success("Session resumed"); if (command === "stop" && next.status === "STOPPED") toast("Session stopped", { description: "Stopped sessions do not count toward your daily goal." }); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Could not update session."); toast.error("Could not update the session. Please try again."); } });
   }
   function start(kind: "FOCUS" | "BREAK" | "LONG_BREAK" = "FOCUS") {
-    transition(async () => { try { setError(""); const next = await startTimer({ subjectId: kind === "FOCUS" ? subjectId : null, seconds: kind === "FOCUS" ? (mode === "POMODORO" ? 1500 : minutes * 60) : kind === "BREAK" ? 300 : 900, kind, mode: kind === "FOCUS" ? mode : "POMODORO" }); setNow(Date.now()); setTimer(next); toast.success(kind === "FOCUS" ? "Focus session started" : "Break started"); } catch (e) { setError(e instanceof Error ? e.message : "Could not start session."); toast.error("Could not start the session. Please try again."); } });
+    transition(async () => { try { setError(""); const next = await startTimer({ subjectId: kind === "FOCUS" ? subjectId : null, seconds: kind === "FOCUS" ? (mode === "POMODORO" ? 1500 : minutes * 60) : kind === "BREAK" ? 300 : 900, kind, mode: kind === "FOCUS" ? mode : "POMODORO" }); resetClock(next.serverNow); setTimer(next); toast.success(kind === "FOCUS" ? "Focus session started" : "Break started"); } catch { try { const recovered = await getActiveTimer(); resetClock(recovered.serverNow); if (recovered.session) { setTimer(recovered.session); setError(""); toast.info("Restored your active session."); return; } } catch { /* Keep the original error visible if recovery also fails. */ } setError("Could not start or recover the session. Please retry or refresh."); toast.error("Could not start or recover the session."); } });
   }
   const percent = total > 0 ? (total - left) / total * 100 : 0;
   return <section className={`timer-panel study-card ${full ? "timer-full" : ""}`}><div className="row"><div><p className="overline">FOCUS TIMER</p><h2>{active ? (timer.kind === "FOCUS" ? "Time to focus" : "Take a break") : "Make space to focus"}</h2></div><button className="icon-button" onClick={() => setFull(!full)} aria-label={full ? "Exit focus mode" : "Full screen focus mode"}>{full ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button></div>
