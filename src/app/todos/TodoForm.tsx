@@ -13,5 +13,5 @@ export function TodoForm() {
       catch { setError("Could not add the task. Please try again."); }
     });
   }
-  return <form onSubmit={submit} className="filter-row"><label>New task<input name="title" maxLength={200} required placeholder="What would you like to do?" aria-invalid={!!error} aria-describedby={error ? "todo-error" : undefined} />{error && <span id="todo-error" className="error" role="alert">{error}</span>}</label><button className="primary" disabled={pending}>Add task</button></form>;
+  return <form onSubmit={submit} className="filter-row"><label>New task<input name="title" maxLength={200} required disabled={pending} placeholder="What would you like to do?" aria-invalid={!!error} aria-describedby={error ? "todo-error" : undefined} />{error && <span id="todo-error" className="error" role="alert">{error}</span>}</label><button className="primary" disabled={pending}>Add task</button></form>;
 }
