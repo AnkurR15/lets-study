@@ -45,6 +45,7 @@ export function FocusTimer({ initial, subjects, serverNow }: { initial: Timer | 
       if (next.status === "COMPLETED" && notified.current !== id) {
         notified.current = id;
         toast.success(next.kind === "FOCUS" ? "Focus session complete!" : "Break complete!");
+        if ("rewards" in next && next.rewards) for (const achievement of next.rewards.achievements) toast.success(`Achievement unlocked: ${achievement}`);
         if (sound) { try { const audio = new AudioContext(); const osc = audio.createOscillator(); osc.connect(audio.destination); osc.frequency.value = 660; osc.start(); osc.stop(audio.currentTime + 0.2); osc.onended = () => { void audio.close(); }; } catch { /* Sound is optional; the saved session still completed. */ } }
         router.refresh();
       }

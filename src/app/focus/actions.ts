@@ -23,7 +23,7 @@ export async function startTimer(input: unknown) {
     const kind = data.kind === "FOCUS" ? data.kind : (completedPomodoros > 0 && completedPomodoros % 4 === 0 ? "LONG_BREAK" : "BREAK");
     const targetSeconds = kind === "FOCUS" ? data.seconds : kind === "LONG_BREAK" ? 900 : 300;
     return tx.studySession.create({ data: { userId: user.id, subjectId: data.subjectId, targetSeconds, kind, mode: data.mode, resumedAt: now, startedAt: now } });
-  });
+  }, { timeout: 30000 });
   return { ...session, serverNow: Date.now() };
 }
 
@@ -34,7 +34,7 @@ export async function getActiveTimer() {
     await settleExpired(tx, user.id, new Date());
     const session = await tx.studySession.findFirst({ where: { userId: user.id, status: { in: ["ACTIVE", "PAUSED"] } } });
     return { session, serverNow: Date.now() };
-  });
+  }, { timeout: 30000 });
 }
 
 export async function updateTimer(id: string, command: "pause" | "resume" | "stop" | "complete" | "sync") {
@@ -44,17 +44,23 @@ export async function updateTimer(id: string, command: "pause" | "resume" | "sto
   const result = await prisma.$transaction(async tx => {
     await lockUser(tx, user.id);
     const now = new Date();
+    const before = await tx.userAchievement.findMany({ where: { userId: user.id }, select: { achievementId: true } });
     await settleExpired(tx, user.id, now);
     const session = await tx.studySession.findFirst({ where: { id, userId: user.id } });
     if (!session) throw new Error("Session not found.");
-    if (session.status === "COMPLETED" || session.status === "STOPPED") return session;
+    if (session.status === "COMPLETED" || session.status === "STOPPED") {
+      const previous = new Set(before.map(item => item.achievementId));
+      const earned = await tx.userAchievement.findMany({ where: { userId: user.id }, include: { achievement: true } });
+      const garden = await tx.garden.findUnique({ where: { userId: user.id } });
+      return { ...session, rewards: { achievements: earned.filter(item => !previous.has(item.achievementId)).map(item => item.achievement.name), bankedSeconds: garden?.bankedSeconds ?? 0, xp: Math.floor((garden?.focusSeconds ?? 0) / 60) + (garden?.bonusXp ?? 0) } };
+    }
     const elapsedSeconds = elapsedAt(session, now);
     if (command === "complete") throw new Error("The session has not reached its target yet.");
     if (command === "pause" && session.status === "ACTIVE") return tx.studySession.update({ where: { id }, data: { status: "PAUSED", elapsedSeconds, resumedAt: null, version: { increment: 1 } } });
     if (command === "resume" && session.status === "PAUSED") return tx.studySession.update({ where: { id }, data: { status: "ACTIVE", resumedAt: now, version: { increment: 1 } } });
     if (command === "stop") return tx.studySession.update({ where: { id }, data: { status: "STOPPED", elapsedSeconds, completedAt: now, resumedAt: null, version: { increment: 1 } } });
     return session;
-  });
+  }, { timeout: 30000 });
   revalidatePath("/dashboard"); revalidatePath("/history"); revalidatePath("/focus");
   return { ...result, serverNow: Date.now() };
 }
