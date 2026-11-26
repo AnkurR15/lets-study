@@ -152,3 +152,4 @@ select:focus-visible, textarea:focus-visible, summary:focus-visible { outline:3p
   .topbar { padding-inline:1rem; }
   .study-card { padding:1rem; }
 }
+.history-pagination { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:.75rem; margin-top:1rem; }

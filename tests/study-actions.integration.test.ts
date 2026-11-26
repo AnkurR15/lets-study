@@ -9,6 +9,7 @@ const { startTimer, updateTimer, getActiveTimer } = await import("../src/app/foc
 const { deleteSubject, saveSubject } = await import("../src/app/subjects/actions");
 const { addTodo } = await import("../src/app/todos/actions");
 const { reconcile } = await import("../src/lib/study/data");
+const { getHistoryPage, historyCursor } = await import("../src/lib/study/history");
 const suite = process.env.RUN_STUDY_DB_TESTS === "1" ? describe : describe.skip;
 
 suite("study actions with an isolated database fixture", () => {
@@ -75,6 +76,26 @@ suite("study actions with an isolated database fixture", () => {
     const form = new FormData(); form.set("title", "   ");
     expect((await addTodo(form)).error).toBeTruthy();
     expect(await prisma.todo.count({ where: { userId: userA } })).toBe(0);
+  }, 30000);
+  test("history filters before paginating and navigates ties in both directions", async () => {
+    const startedAt = new Date("2026-01-01T20:00:00.000Z");
+    await prisma.studySession.createMany({ data: Array.from({ length: 45 }, () => ({ userId: userA, subjectId, status: "COMPLETED" as const, targetSeconds: 60, elapsedSeconds: 60, startedAt, completedAt: startedAt })) });
+    await prisma.studySession.create({ data: { userId: userA, subjectId, status: "COMPLETED", targetSeconds: 60, elapsedSeconds: 60, startedAt: new Date("2026-01-03T20:00:00.000Z") } });
+    await prisma.studySession.create({ data: { userId: userB, status: "COMPLETED", targetSeconds: 60, elapsedSeconds: 60, startedAt } });
+    const filters = { userId: userA, subject: subjectId, date: "2026-01-02", timeZone: "Asia/Kolkata" };
+    const first = await getHistoryPage(filters);
+    expect(first.sessions).toHaveLength(20);
+    expect(first.hasPrevious).toBe(false);
+    expect(first.hasNext).toBe(true);
+    const second = await getHistoryPage({ ...filters, after: historyCursor(first.sessions.at(-1)!) });
+    const third = await getHistoryPage({ ...filters, after: historyCursor(second.sessions.at(-1)!) });
+    expect(third.sessions).toHaveLength(5);
+    expect(third.hasNext).toBe(false);
+    expect(new Set([...first.sessions, ...second.sessions, ...third.sessions].map(s => s.id)).size).toBe(45);
+    const back = await getHistoryPage({ ...filters, before: historyCursor(third.sessions[0]) });
+    expect(back.sessions.map(s => s.id)).toEqual(second.sessions.map(s => s.id));
+    expect(back.hasPrevious).toBe(true);
+    expect(back.hasNext).toBe(true);
   }, 30000);
   test("deleting a subject reconciles an expired session first", async () => {
     const subject = await prisma.subject.create({ data: { userId: userA, name: "Expiry test", color: "#719775" } });
