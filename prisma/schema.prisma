@@ -21,6 +21,7 @@ model User {
   studySessions   StudySession[]
   todos           Todo[]
   plants          UserPlant[]
+  garden          Garden?
   achievements    UserAchievement[]
   settings        FocusSettings?
   goals           StudyGoal[]
@@ -150,8 +151,20 @@ model PlantSpecies {
   name        String      @unique
   description String
   unlockLevel Int         @default(1)
+  rarity      String      @default("Common")
+  growthDuration Int      @default(3600)
   plants      UserPlant[]
   roomPlants  RoomPlant[]
+}
+
+model Garden {
+  userId String @id
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activePlantId String? @unique
+  activePlant UserPlant? @relation("ActivePlant", fields: [activePlantId], references: [id], onDelete: SetNull)
+  bankedSeconds Int @default(0)
+  focusSeconds Int @default(0)
+  bonusXp Int @default(0)
 }
 
 model UserPlant {
@@ -165,6 +178,7 @@ model UserPlant {
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
   rewards       StudyReward[]
+  activeInGarden Garden? @relation("ActivePlant")
 
   @@index([userId])
 }
@@ -173,6 +187,7 @@ model Achievement {
   id          String            @id
   name        String            @unique
   description String
+  bonusXp Int @default(10)
   users       UserAchievement[]
 }
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma, StudySession } from "@/generated/prisma/client";
+import { rewardSession } from "@/lib/plant-rewards";
 
 export function elapsedAt(session: Pick<StudySession, "elapsedSeconds" | "targetSeconds" | "status" | "resumedAt">, now: Date) {
   const running = session.status === "ACTIVE" && session.resumedAt ? Math.max(0, Math.floor((now.getTime() - session.resumedAt.getTime()) / 1000)) : 0;
@@ -14,11 +15,13 @@ export async function settleExpired(tx: Prisma.TransactionClient, userId: string
   const active = await tx.studySession.findFirst({ where: { userId, status: "ACTIVE" } });
   if (!active || !active.resumedAt || elapsedAt(active, now) < active.targetSeconds) return null;
   const completedAt = new Date(active.resumedAt.getTime() + (active.targetSeconds - active.elapsedSeconds) * 1000);
-  return tx.studySession.update({ where: { id: active.id }, data: { status: "COMPLETED", elapsedSeconds: active.targetSeconds, completedAt, resumedAt: null, version: { increment: 1 } } });
+  const completed = await tx.studySession.update({ where: { id: active.id }, data: { status: "COMPLETED", elapsedSeconds: active.targetSeconds, completedAt, resumedAt: null, version: { increment: 1 } } });
+  await rewardSession(tx, userId, completed.id);
+  return completed;
 }
 
 export async function reconcile(userId: string) {
-  return prisma.$transaction(async tx => { await lockUser(tx, userId); return settleExpired(tx, userId, new Date()); });
+  return prisma.$transaction(async tx => { await lockUser(tx, userId); return settleExpired(tx, userId, new Date()); }, { timeout: 30000 });
 }
 
 export function dayKey(date: Date, timeZone: string) {

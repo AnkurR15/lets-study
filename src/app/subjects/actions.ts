@@ -23,7 +23,7 @@ export async function deleteSubject(form: FormData) {
     if (active) return "active" as const;
     const result = await tx.subject.deleteMany({ where: { id, userId: user.id } });
     return result.count ? "deleted" as const : "missing" as const;
-  });
+  }, { timeout: 30000 });
   if (outcome === "deleted") { revalidatePath("/subjects"); revalidatePath("/focus"); revalidatePath("/history"); revalidatePath("/dashboard"); }
   return outcome;
 }
