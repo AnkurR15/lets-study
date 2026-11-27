@@ -10,7 +10,7 @@ type Subject = { id: string; name: string; color: string };
 function remaining(session: Timer, now: number) { return Math.max(0, session.targetSeconds - session.elapsedSeconds - (session.status === "ACTIVE" && session.resumedAt ? Math.max(0, Math.floor((now - new Date(session.resumedAt).getTime()) / 1000)) : 0)); }
 function display(seconds: number) { return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`; }
 
-export function FocusTimer({ initial, subjects, serverNow }: { initial: Timer | null; subjects: Subject[]; serverNow: number }) {
+export function FocusTimer({ userId, initial, subjects, serverNow }: { userId: string; initial: Timer | null; subjects: Subject[]; serverNow: number }) {
   const router = useRouter();
   const [timer, setTimer] = useState(initial);
   const [now, setNow] = useState(serverNow);
@@ -23,6 +23,7 @@ export function FocusTimer({ initial, subjects, serverNow }: { initial: Timer | 
   const [pending, transition] = useTransition();
   const syncing = useRef(false);
   const notified = useRef<string | null>(null);
+  const seenAchievements = useRef(new Set<string>());
   const clock = useRef<{ server: number; monotonic: number | null }>({ server: serverNow, monotonic: null });
   const latestServerTime = useRef(serverNow);
   const resetClock = useCallback((time: number) => {
@@ -34,6 +35,20 @@ export function FocusTimer({ initial, subjects, serverNow }: { initial: Timer | 
   const active = timer && (timer.status === "ACTIVE" || timer.status === "PAUSED");
   const left = timer ? remaining(timer, now) : (mode === "POMODORO" ? 1500 : minutes * 60);
   const total = timer?.targetSeconds ?? (mode === "POMODORO" ? 1500 : minutes * 60);
+  const notifyCompletion = useCallback((next: Awaited<ReturnType<typeof updateTimer>>) => {
+      if (next.status === "COMPLETED" && notified.current !== next.id) {
+        notified.current = next.id;
+        toast.success(next.kind === "FOCUS" ? "Focus session complete!" : "Break complete!");
+        const key = `garden-notices:${userId}`;
+        let seen = seenAchievements.current;
+        try { seen = new Set([...seen, ...JSON.parse(localStorage.getItem(key) ?? "[]")]); } catch { /* Storage is optional. */ }
+        if ("rewards" in next && next.rewards) for (const achievement of next.rewards.achievements) if (!seen.has(achievement.id)) { toast.success(`Achievement unlocked: ${achievement.name}`); seen.add(achievement.id); }
+        seenAchievements.current = seen;
+        try { localStorage.setItem(key, JSON.stringify([...seen])); } catch { /* Storage is optional. */ }
+        if (sound) { try { const audio = new AudioContext(); const osc = audio.createOscillator(); osc.connect(audio.destination); osc.frequency.value = 660; osc.start(); osc.stop(audio.currentTime + 0.2); osc.onended = () => { void audio.close(); }; } catch { /* Sound is optional; the saved session still completed. */ } }
+        router.refresh();
+      }
+  }, [router, sound, userId]);
   const sync = useCallback(async (id: string) => {
     if (syncing.current) return;
     syncing.current = true;
@@ -42,16 +57,10 @@ export function FocusTimer({ initial, subjects, serverNow }: { initial: Timer | 
       resetClock(next.serverNow);
       setTimer(current => current?.id === id && next.version >= current.version ? next : current);
       setError("");
-      if (next.status === "COMPLETED" && notified.current !== id) {
-        notified.current = id;
-        toast.success(next.kind === "FOCUS" ? "Focus session complete!" : "Break complete!");
-        if ("rewards" in next && next.rewards) for (const achievement of next.rewards.achievements) toast.success(`Achievement unlocked: ${achievement}`);
-        if (sound) { try { const audio = new AudioContext(); const osc = audio.createOscillator(); osc.connect(audio.destination); osc.frequency.value = 660; osc.start(); osc.stop(audio.currentTime + 0.2); osc.onended = () => { void audio.close(); }; } catch { /* Sound is optional; the saved session still completed. */ } }
-        router.refresh();
-      }
+      notifyCompletion(next);
     } catch { setError("Could not sync your session. We will retry; your session remains saved."); }
     finally { syncing.current = false; }
-  }, [router, sound, resetClock]);
+  }, [notifyCompletion, resetClock]);
   useEffect(() => {
     const tick = window.setInterval(() => {
       const current = performance.now();
@@ -80,7 +89,7 @@ export function FocusTimer({ initial, subjects, serverNow }: { initial: Timer | 
   useEffect(() => { if (timer?.status !== "ACTIVE" || left !== 0) return; const retry = window.setTimeout(() => { void sync(timer.id); }, 2000); return () => window.clearTimeout(retry); }, [timer, left, sync]);
   function run(command: "pause" | "resume" | "stop" | "complete") {
     if (!timer) return;
-    transition(async () => { try { setError(""); const next = await updateTimer(timer.id, command); resetClock(next.serverNow); setTimer(current => current?.id === next.id && current.version <= next.version ? next : current); if (command === "pause" && next.status === "PAUSED") toast.success("Session paused"); if (command === "resume" && next.status === "ACTIVE") toast.success("Session resumed"); if (command === "stop" && next.status === "STOPPED") toast("Session stopped", { description: "Stopped sessions do not count toward your daily goal." }); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Could not update session."); toast.error("Could not update the session. Please try again."); } });
+    transition(async () => { try { setError(""); const next = await updateTimer(timer.id, command); resetClock(next.serverNow); notifyCompletion(next); setTimer(current => current?.id === next.id && current.version <= next.version ? next : current); if (command === "pause" && next.status === "PAUSED") toast.success("Session paused"); if (command === "resume" && next.status === "ACTIVE") toast.success("Session resumed"); if (command === "stop" && next.status === "STOPPED") toast("Session stopped", { description: "Stopped sessions do not count toward your daily goal." }); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Could not update session."); toast.error("Could not update the session. Please try again."); } });
   }
   function start(kind: "FOCUS" | "BREAK" | "LONG_BREAK" = "FOCUS") {
     transition(async () => { try { setError(""); const next = await startTimer({ subjectId: kind === "FOCUS" ? subjectId : null, seconds: kind === "FOCUS" ? (mode === "POMODORO" ? 1500 : minutes * 60) : kind === "BREAK" ? 300 : 900, kind, mode: kind === "FOCUS" ? mode : "POMODORO" }); resetClock(next.serverNow); setTimer(next); toast.success(kind === "FOCUS" ? "Focus session started" : "Break started"); } catch { try { const recovered = await getActiveTimer(); resetClock(recovered.serverNow); if (recovered.session) { setTimer(recovered.session); setError(""); toast.info("Restored your active session."); return; } } catch { /* Keep the original error visible if recovery also fails. */ } setError("Could not start or recover the session. Please retry or refresh."); toast.error("Could not start or recover the session."); } });

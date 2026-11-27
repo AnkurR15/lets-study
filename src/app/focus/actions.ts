@@ -44,15 +44,13 @@ export async function updateTimer(id: string, command: "pause" | "resume" | "sto
   const result = await prisma.$transaction(async tx => {
     await lockUser(tx, user.id);
     const now = new Date();
-    const before = await tx.userAchievement.findMany({ where: { userId: user.id }, select: { achievementId: true } });
     await settleExpired(tx, user.id, now);
     const session = await tx.studySession.findFirst({ where: { id, userId: user.id } });
     if (!session) throw new Error("Session not found.");
     if (session.status === "COMPLETED" || session.status === "STOPPED") {
-      const previous = new Set(before.map(item => item.achievementId));
       const earned = await tx.userAchievement.findMany({ where: { userId: user.id }, include: { achievement: true } });
       const garden = await tx.garden.findUnique({ where: { userId: user.id } });
-      return { ...session, rewards: { achievements: earned.filter(item => !previous.has(item.achievementId)).map(item => item.achievement.name), bankedSeconds: garden?.bankedSeconds ?? 0, xp: Math.floor((garden?.focusSeconds ?? 0) / 60) + (garden?.bonusXp ?? 0) } };
+      return { ...session, rewards: { achievements: earned.map(item => ({ id: item.achievementId, name: item.achievement.name })), bankedSeconds: garden?.bankedSeconds ?? 0, xp: Math.floor((garden?.focusSeconds ?? 0) / 60) + (garden?.bonusXp ?? 0) } };
     }
     const elapsedSeconds = elapsedAt(session, now);
     if (command === "complete") throw new Error("The session has not reached its target yet.");
